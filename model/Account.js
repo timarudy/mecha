@@ -6,6 +6,8 @@ const accountSchema = new Schema({
     password: String,
     email: String,
     salt: String,
+    confirmed: Boolean,
+    isAdmin: Boolean,
     
     lastAuthentication: Date,
 });

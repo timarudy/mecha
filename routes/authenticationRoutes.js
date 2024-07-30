@@ -31,6 +31,20 @@ transporter.verify((error, success) => {
 // Required modules and initial setup omitted for brevity
 
 module.exports = app => {
+    app.post('/account/data', async (req, res) => {
+        const { username } = req.body;
+
+        try {
+            const account = await Account.findOne({ username });
+            const exists = account != null;
+            res.json({
+                exists,
+            });
+        } catch (err) {
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
     app.post('/account/login', async (req, res) => {
         try {
             const { username, password } = req.body;
@@ -51,11 +65,13 @@ module.exports = app => {
 
                     response.status = 1;
                     response.msg = "Logged in";
+                    const { _id } = userAccount;
                     response.data = {
                         username,
                         isAdmin: userAccount.isAdmin,
                         email: userAccount.email,
-                        confirmed: userAccount.confirmed
+                        confirmed: userAccount.confirmed,
+                        _id: _id,
                     };
                     return res.json(response);
                 }
@@ -94,7 +110,8 @@ module.exports = app => {
             }
 
             let userAccount = await Account.findOne({ username }, '_id email');
-            if (!userAccount) {
+            let userAccount2 = await Account.findOne({ email });
+            if (!userAccount && !userAccount2) {
                 crypto.randomBytes(32, async (err, salt) => {
                     if (err) {
                         console.error(err);
@@ -117,7 +134,18 @@ module.exports = app => {
                         });
 
                         await newAccount.save();
-                        await sendOTPVerificationEmail(newAccount, res);
+                        // await sendOTPVerificationEmail(newAccount, res);
+
+                        response.status = 1;
+                        response.msg = "Account created";
+                        const { _id } = newAccount;
+                        response.data = {
+                            _id,
+                            email,
+                            username,
+                        };
+
+                        res.json(response);
                     } catch (error) {
                         console.error(error);
                         res.status(500).json({
@@ -127,8 +155,12 @@ module.exports = app => {
                     }
                 });
             } else {
+                if (userAccount != null) {
+                    response.msg = "Username is already in use";
+                } else {
+                    response.msg = "Email is already in use"
+                }
                 response.status = 2;
-                response.msg = userAccount.username === username ? "Username is already in use" : "Email is already in use";
                 res.json(response);
             }
         } catch (error) {
@@ -163,7 +195,7 @@ module.exports = app => {
                             throw new Error("Invalid code passed");
                         } else {
                             await Account.updateOne({ _id: userId }, { confirmed: true });
-                            UserOTPVerification.deleteMany({ userId });
+                            await UserOTPVerification.deleteMany({ userId });
                             res.json({
                                 status: 1,
                                 msg: "Email confirmed",
@@ -176,6 +208,45 @@ module.exports = app => {
             res.json({
                 status: 0,
                 msg: error.message,
+            });
+        }
+    });
+
+    app.post('/account/request-otp', async (req, res) => {
+        try {
+            const { userId } = req.body;
+
+            if (!userId) {
+                console.log("User ID is required");
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'User ID is required'
+                });
+            }
+
+            // Check if the user exists and is not confirmed
+            const userAccount = await Account.findById(userId);
+            if (!userAccount) {
+                return res.status(404).json({
+                    status: 0,
+                    msg: 'User not found'
+                });
+            }
+
+            if (userAccount.confirmed) {
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'Email is already confirmed'
+                });
+            }
+
+            // Use the existing function to send a new OTP
+            await sendOTPVerificationEmail(userAccount, res);
+        } catch (error) {
+            console.error('Failed to request OTP:', error);
+            res.status(500).json({
+                status: 0,
+                msg: 'Internal server error'
             });
         }
     });
@@ -193,25 +264,60 @@ const sendOTPVerificationEmail = async ({ _id, email, username }, res) => {
         };
 
         const hashedOTP = await bcrypt.hash(otp, 10);
-        const newOTPVerification = new UserOTPVerification({
-            userId: _id,
-            otp: hashedOTP,
-            createdAt: Date.now(),
-            expiresAt: Date.now() + 600000,
-        });
 
-        await newOTPVerification.save();
-        await transporter.sendMail(mailOptions);
+        const verification = await UserOTPVerification.findOne({ userId: _id });
 
         let response = {};
 
-        response.status = 1;
-        response.msg = "Account created";
-        response.data = {
-            _id,
-            email,
-            username,
-        };
+        if (verification) {
+            if (verification.expiresAt < Date.now()) {
+                await UserOTPVerification.deleteOne({ userId: _id });
+
+                const newOTPVerification = new UserOTPVerification({
+                    userId: _id,
+                    otp: hashedOTP,
+                    createdAt: Date.now(),
+                    expiresAt: Date.now() + 120000,
+                });
+
+                await newOTPVerification.save();
+                await transporter.sendMail(mailOptions);
+
+                response.status = 1;
+                response.msg = "Verification sent";
+                response.data = {
+                    _id,
+                    email,
+                    username,
+                };
+            } else {
+                response.status = 1;
+                response.msg = "Use previous verification code";
+                response.data = {
+                    _id,
+                    email,
+                    username,
+                };
+            }
+        } else {
+            const newOTPVerification = new UserOTPVerification({
+                userId: _id,
+                otp: hashedOTP,
+                createdAt: Date.now(),
+                expiresAt: Date.now() + 120000,
+            });
+
+            await newOTPVerification.save();
+            await transporter.sendMail(mailOptions);
+
+            response.status = 1;
+            response.msg = "Verification sent";
+            response.data = {
+                _id,
+                email,
+                username,
+            };
+        }
 
         res.json(response);
     } catch (error) {

@@ -11,6 +11,7 @@ mongoose.connect(keys.mongoURI);
 
 // Setup db models
 require('./model/Account');
+require('./model/Appointment');
 
 // Setup the routes
 require('./routes/authenticationRoutes')(app);

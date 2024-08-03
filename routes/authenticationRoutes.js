@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Account = mongoose.model('accounts');
+const Appointment = mongoose.model('appointments');
 
 const validator = require('validator');
 const argon2i = require('argon2-ffi').argon2i;
@@ -37,8 +38,17 @@ module.exports = app => {
         try {
             const account = await Account.findOne({ username });
             const exists = account != null;
+
+            let appointments = {};
+
+            if (exists) {
+                const { _id } = account;
+                appointments = await Appointment.find({ userId: _id });
+            }
+
             res.json({
                 exists,
+                appointments,
             });
         } catch (err) {
             res.status(500).json({ error: 'Internal server error' });
@@ -250,6 +260,214 @@ module.exports = app => {
             });
         }
     });
+
+    app.post('/account/send-appointment-form', async (req, res) => {
+        try {
+            const { userId, userName, problem, date, time, email } = req.body;
+
+            const chosenDate = new Date(date);
+            const userAccount = await Account.findById(userId);
+
+            if (!userId) {
+                console.log("User ID is required");
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'User ID is required'
+                });
+            }
+
+            const appointments = await Appointment.find({ userId });
+
+            if (appointments.length > 3) {
+                console.log("More than 3 appointments at a time are prohibited");
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'Maximum 3 appointments'
+                });
+            }
+
+            const appointment = await Appointment.findOne({ date, time });
+
+            if (appointment) {
+                console.log("This date or time is already taken");
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'Taken date or time'
+                });
+            }
+
+            if (chosenDate.getTime() <= Date.now()) {
+                console.log("The date cannot be earlier than today");
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'Incorrect date'
+                });
+            }
+
+            if (chosenDate.getTime() > Date.now() + 15552000000) {
+                console.log("You can make an appointment at least 3 month before the actual appointment");
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'Incorrect date'
+                });
+            }
+
+            if (!userAccount.confirmed) {
+                console.log("Not confirmed email");
+                return res.status(400).json({
+                    status: 0,
+                    msg: 'Confirm email first'
+                });
+            }
+
+            const newAppointment = new Appointment({
+                userId,
+                date,
+                time,
+            });
+
+            await newAppointment.save();
+
+            const adminMailOptions = {
+                from: keys.email,
+                to: "tymurrudenko2005@gmail.com",
+                subject: `Appointment of ${userName}`,
+                html: `
+                <html>
+                <head>
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            background-color: #f4f4f4;
+                            color: #333;
+                            padding: 20px;
+                        }
+                        .container {
+                            background-color: #fff;
+                            padding: 20px;
+                            border-radius: 10px;
+                            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+                        }
+                        .header {
+                            font-size: 24px;
+                            font-weight: bold;
+                            margin-bottom: 20px;
+                            color: #0056b3;
+                        }
+                        .details {
+                            font-size: 16px;
+                            line-height: 1.6;
+                        }
+                        .details p {
+                            margin: 5px 0;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">New Appointment Request</div>
+                        <div class="details">
+                            <p><strong>Name:</strong> ${userName}</p>
+                            <p><strong>Date:</strong> ${date}</p>
+                            <p><strong>Time:</strong> ${time}</p>
+                            <p><strong>Problem explained:</strong> ${problem}</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                `,
+            };
+
+            const customerMailOptions = {
+                from: keys.email,
+                to: email,
+                subject: `Appointment to mecha`,
+                html: `
+                <html>
+                <head>
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            background-color: #f4f4f4;
+                            color: #333;
+                            padding: 20px;
+                        }
+                        .container {
+                            background-color: #fff;
+                            padding: 20px;
+                            border-radius: 10px;
+                            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+                        }
+                        .header {
+                            font-size: 24px;
+                            font-weight: bold;
+                            margin-bottom: 20px;
+                            color: #28a745;
+                        }
+                        .message {
+                            font-size: 16px;
+                            line-height: 1.6;
+                        }
+                        .message p {
+                            margin: 10px 0;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">Appointment Confirmation</div>
+                        <div class="message">
+                            <p>Hey, <strong>${userName}</strong>!</p>
+                            <p>You successfully made an appointment to us on <strong>${date}</strong> at <strong>${time}</strong>.</p>
+                            <p>See you soon!</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                `,
+            }
+
+            await transporter.sendMail(adminMailOptions);
+            await transporter.sendMail(customerMailOptions);
+
+            let response = {};
+
+            response.status = 1;
+            response.msg = "Verification sent";
+
+            res.json(response);
+        } catch (error) {
+            console.error('Failed to request OTP:', error);
+            res.status(500).json({
+                status: 0,
+                msg: 'Internal server error'
+            });
+        }
+    });
+
+    app.post('/account/delete-appointment', async (req, res) => {
+        try {
+            const { date, time } = req.body;
+
+            const appointment = await Appointment.findOne({ date, time });
+            let response = {};
+
+            if (!appointment) {
+                response.status = 0;
+                response.msg = "Appointment does not exist";
+                return res.json(response);
+            }
+
+            await Appointment.deleteOne(appointment);
+
+            response.status = 1;
+            response.message = "Deleted";
+            return res.json(response);
+        } catch (error) {
+            res.status(500).json({ status: 0, msg: 'Internal server error' });
+            console.error(error);
+        }
+    });
 };
 
 const sendOTPVerificationEmail = async ({ _id, email, username }, res) => {
@@ -260,7 +478,57 @@ const sendOTPVerificationEmail = async ({ _id, email, username }, res) => {
             from: keys.email,
             to: email,
             subject: "Verify Your Email",
-            html: `<p>Hey, ${username} enter <b>${otp}</b> in <b>mecha</b> to verify your email</p>`,
+            html: `
+            <html>
+            <head>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        background-color: #f4f4f4;
+                        color: #333;
+                        padding: 20px;
+                    }
+                    .container {
+                        background-color: #fff;
+                        padding: 20px;
+                        border-radius: 10px;
+                        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+                    }
+                    .header {
+                        font-size: 24px;
+                        font-weight: bold;
+                        margin-bottom: 20px;
+                        color: #ffcc00;
+                    }
+                    .message {
+                        font-size: 16px;
+                        line-height: 1.6;
+                    }
+                    .message p {
+                        margin: 10px 0;
+                    }
+                    .otp {
+                        font-size: 20px;
+                        font-weight: bold;
+                        color: #ff0000;
+                        text-align: center;
+                        margin: 20px 0;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">Email Verification</div>
+                    <div class="message">
+                        <p>Hey, <strong>${username}</strong>!</p>
+                        <p>Enter the following OTP code in <strong>mecha</strong> to verify your email:</p>
+                        <div class="otp">${otp}</div>
+                        <p>This code is valid for 2 minutes.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            `,
         };
 
         const hashedOTP = await bcrypt.hash(otp, 10);

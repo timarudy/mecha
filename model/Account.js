@@ -7,7 +7,7 @@ const accountSchema = new Schema({
     email: String,
     salt: String,
     confirmed: Boolean,
-    isAdmin: Boolean,
+    bonuses: Number,
     
     lastAuthentication: Date,
 });

@@ -66,7 +66,7 @@ module.exports = app => {
                 return res.json(response);
             }
 
-            let userAccount = await Account.findOne({ username }, 'username isAdmin password email confirmed');
+            let userAccount = await Account.findOne({ username }, 'username password email confirmed');
             if (userAccount) {
                 const success = await argon2i.verify(userAccount.password, password);
                 if (success) {
@@ -78,7 +78,6 @@ module.exports = app => {
                     const { _id } = userAccount;
                     response.data = {
                         username,
-                        isAdmin: userAccount.isAdmin,
                         email: userAccount.email,
                         confirmed: userAccount.confirmed,
                         _id: _id,
@@ -93,6 +92,35 @@ module.exports = app => {
         } catch (error) {
             res.status(500).json({ status: 0, msg: 'Internal server error' });
             console.error(error);
+        }
+    });
+
+    app.post('/account/modify-bonuses', async (req, res) => {
+        try {
+            const { userId, bonuses } = req.body;
+            let response = {};
+
+            const userAccount = await Account.findOne({ _id: userId });
+
+            if (userAccount) {
+                userAccount.bonuses += parseInt(bonuses);
+                await userAccount.save();
+                res.json({
+                    status: 1,
+                    msg: "Bonus collected",
+                });
+            } else {
+                res.status(500).json({
+                    status: 0,
+                    msg: 'No user found'
+                });
+            }
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({
+                status: 0,
+                msg: 'Internal server error'
+            });
         }
     });
 
@@ -138,7 +166,6 @@ module.exports = app => {
                             password: hash,
                             email,
                             salt,
-                            isAdmin: false,
                             confirmed: false,
                             lastAuthentication: Date.now(),
                         });

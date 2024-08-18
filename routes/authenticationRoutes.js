@@ -95,10 +95,9 @@ module.exports = app => {
         }
     });
 
-    app.post('/account/modify-bonuses', async (req, res) => {
+    app.post('/account/bonuses/common', async (req, res) => {
         try {
             const { userId, bonuses } = req.body;
-            let response = {};
 
             const userAccount = await Account.findOne({ _id: userId });
 
@@ -108,6 +107,34 @@ module.exports = app => {
                 res.json({
                     status: 1,
                     msg: "Bonus collected",
+                });
+            } else {
+                res.status(500).json({
+                    status: 0,
+                    msg: 'No user found'
+                });
+            }
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({
+                status: 0,
+                msg: 'Internal server error'
+            });
+        }
+    });
+
+    app.post('/account/bonuses/cars', async (req, res) => {
+        try {
+            const { userId, carBonus } = req.body;
+
+            const userAccount = await Account.findOne({ _id: userId });
+
+            if (userAccount) {
+                userAccount.carBonuses.push(carBonus);
+                await userAccount.save();
+                res.json({
+                    status: 1,
+                    msg: "Car bonus collected",
                 });
             } else {
                 res.status(500).json({

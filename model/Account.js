@@ -8,6 +8,7 @@ const accountSchema = new Schema({
     salt: String,
     confirmed: Boolean,
     bonuses: Number,
+    carBonuses: [String],
     
     lastAuthentication: Date,
 });

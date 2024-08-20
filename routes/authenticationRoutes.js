@@ -66,7 +66,7 @@ module.exports = app => {
                 return res.json(response);
             }
 
-            let userAccount = await Account.findOne({ username }, 'username password email confirmed');
+            let userAccount = await Account.findOne({ username }, 'username password email confirmed bonuses carBonuses');
             if (userAccount) {
                 const success = await argon2i.verify(userAccount.password, password);
                 if (success) {
@@ -80,6 +80,8 @@ module.exports = app => {
                         username,
                         email: userAccount.email,
                         confirmed: userAccount.confirmed,
+                        bonuses: userAccount.bonuses,
+                        carNames: userAccount.carBonuses,
                         _id: _id,
                     };
                     return res.json(response);

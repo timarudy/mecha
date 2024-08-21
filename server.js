@@ -12,6 +12,7 @@ mongoose.connect(keys.mongoURI);
 // Setup db models
 require('./model/Account');
 require('./model/Appointment');
+require('./model/GameAccess.js');
 
 // Setup the routes
 require('./routes/authenticationRoutes')(app);

@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Account = mongoose.model('accounts');
 const Appointment = mongoose.model('appointments');
+const GameAccess = mongoose.model('game-access');
 
 const validator = require('validator');
 const argon2i = require('argon2-ffi').argon2i;
@@ -52,6 +53,74 @@ module.exports = app => {
             });
         } catch (err) {
             res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.post('/account/check-game-access', async (req, res) => {
+        try {
+            const { userId } = req.body;
+    
+            const lastGameAccess = await GameAccess.findOne({ userId });
+            let response = {};
+    
+            if (lastGameAccess == null) {
+                response.status = 1;
+                response.msg = "Accessible";
+                return res.json(response);
+            }
+    
+            // Ensure that the addition is done numerically
+            const expiringDate = new Date(lastGameAccess.lastVisit).getTime() + 60000;
+    
+            console.log("Expiring Date:", new Date(expiringDate).toString()); // Proper date format
+            console.log("Current Date:", Date.now());
+    
+            if (expiringDate < Date.now()) {
+                response.status = 1;
+                response.msg = "Accessible";
+            } else {
+                const timeLeft = Math.floor((expiringDate - Date.now()) / 1000); // Time left in seconds
+                response.status = 0;
+                response.msg = `Time left: ${timeLeft} seconds`;
+            }
+    
+            return res.json(response);
+        } catch (error) {
+            res.status(500).json({
+                error: 'Internal server error'
+            });
+        }
+    });    
+
+    app.post('/account/update-game-access', async (req, res) => {
+        try {
+            const { userId } = req.body;
+
+            const lastGameAccess = await GameAccess.findOne({ userId });
+
+            let response = {};
+
+            if (lastGameAccess == null) {
+                const newGameAccess = new GameAccess({
+                    userId,
+                    lastVisit: Date.now(),
+                });
+                await newGameAccess.save();
+                response.msg = "Created and updated";
+            }
+            else {
+                lastGameAccess.lastVisit = Date.now();
+                await lastGameAccess.save();
+                response.msg = "Updated";
+            }
+
+            response.status = 1;
+
+            return res.json(response);
+        } catch (error) {
+            res.status(500).json({
+                error: 'Internal server error'
+            });
         }
     });
 
